@@ -1,0 +1,141 @@
+#!/bin/bash
+
+dirclient="/etc/openvpn/client" #diretório onde ficarão os arquivos dos usuários
+server=192.168.1.0 # IP ou FQDN do servidor
+
+menu(){
+        clear
+        echo "
+                *********************************
+                ********* SCRIPT OPENVPN ********
+                *********************************
+
+                1) Configuração Inicial do OpenVPN
+                2) Criação de usuários
+                3) Alterar senha de usuários
+                4) Listar Usuários
+                5) Sair"
+
+        echo -n "
+                Digite sua opção: "
+                read OP
+}
+
+user(){
+
+        read -p "Digite o nome do cliente: " CLIENT
+        #read -p "Digite o IP Público ou FQDN que o cliente irá se conec                                                                                        tar: " IP
+        echo $dirclient/$CLIENT
+        cd /etc/openvpn/easy-rsa
+        . ./vars
+        ./build-key-pass $CLIENT
+        mkdir $dirclient/$CLIENT
+        cp keys/$CLIENT.* $dirclient/$CLIENT
+        cd $dirclient/$CLIENT
+        echo "client
+dev tun
+proto udp
+remote $server 1194
+resolv-retry infinite
+nobind
+persist-key
+persist-tun
+remote-cert-tls server
+#auth-user-pass
+cipher AES-256-CBC
+auth SHA512
+tls-cipher TLS-DHE-RSA-WITH-AES-256-GCM-SHA384:TLS-DHE-RSA-WITH-AES-128-GCM-SHA256:TLS-DHE-RSA-WITH-AES-256-CBC-SHA:TLS-DHE-RSA-WITH-CAMELLIA-256-CBC-SHA:TLS-DHE-RSA-WITH-AES-128-CBC-SHA:TLS-DHE-RSA-WITH-CAMELLIA-128-CBC-SHA
+verb 3" >> $CLIENT.ovpn
+        echo "<ca>" >> $CLIENT.ovpn && cat /etc/openvpn/server/ca.crt >> $CLIENT.ovpn && echo "</ca>" >> $CLIENT.ovpn
+        echo "<tls-auth>" >> $CLIENT.ovpn && cat /etc/openvpn/server/ta.key >> $CLIENT.ovpn && echo "</tls-auth>" >> $CLIENT.ovpn
+        echo "<cert>" >> $CLIENT.ovpn && cat $dirclient/$CLIENT/$CLIENT.crt | sed -n '/BEGIN CERTIFICATE/,/END CERTIFICATE/p' >> $CLIENT.ovpn && echo "</cert>" >> $CLIENT.ovpn
+        echo "<key>" >> $CLIENT.ovpn && cat $dirclient/$CLIENT/$CLIENT.key >> $CLIENT.ovpn && echo "</key>" >> $CLIENT.ovpn
+}
+
+server(){
+        cd /etc/openvpn/easy-rsa
+        source ./vars
+        ./clean-all
+        ./build-ca
+        ./build-key-server $SERVER
+        openvpn --genkey --secret ta.key
+        ./build-dh
+        mkdir -p /etc/openvpn/keys; cd keys && cp dh4096.pem ca.crt server.crt server.key /etc/openvpn/keys
+}
+
+mudarsenha(){
+        clear
+        echo "
+                Mudança de senha:
+                "
+        read -p "Digite o nome do cliente: " client
+
+        dirclient='/etc/openvpn/client/'
+        for i in $client; do
+                client=$i
+                cd /etc/openvpn/client/$client
+                openssl rsa -aes256 -in $client.key -out $client.key.new
+                sed -i '/<key>/,/key>/d' $client.ovpn
+                echo "<key>" >> $client.ovpn && cat $client.key.new >> $client.ovpn && echo "</key>" >> $client.ovpn
+        done
+}
+
+menu
+#read OP
+
+while [ $OP != "0" ]; do
+
+        case $OP in
+                1)
+                server
+                menu
+                continue
+                ;;
+
+                2)
+                user
+                menu
+                continue
+                ;;
+
+                3)
+                mudarsenha
+                read -p "Deseja mudar a senha de outro usuário? (digite 'sim' para confirmar)" CH
+
+                if [ "$CH" != "sim" ]; then
+                        menu
+                else
+                        OP=3
+                fi
+                continue
+                ;;
+
+                4)
+                ls /etc/openvpn/client && sleep 3
+                echo -n "pressione Enter para voltar ao menu: "
+                read -s -n 1 enter
+                if [[ "$enter" = "" ]]; then
+                        menu
+                else
+                        menu
+                fi
+                #menu
+                continue
+                ;;
+
+                5)
+                clear
+                echo -n "O script será finalizado"
+                echo -n "." && sleep 1
+                echo -n "." && sleep 1
+                echo "."
+                break
+                ;;
+
+                *)
+                echo "Opção inválida"
+                menu
+                continue
+                ;;
+        esac
+done
